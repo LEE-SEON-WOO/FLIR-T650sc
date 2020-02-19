@@ -20,9 +20,23 @@ It also needs the Python packages *numpy* and *matplotlib* (the latter only if u
 ```
 
 ```windows 10
-https://www.sno.phy.queensu.ca/~phil/exiftool/install.html
-download 'exiftool-11.60.zip'
 pip install pillow numpy matplotlib
+```
+
+```EXIF-TOOL DOWNLOAD Detail as follow..
+https://exiftool.org/install.html
+Stand-Alone Executable
+1. Download the Windows Executable from the ExifTool home page.
+(The file you download should be named "exiftool-11.87.zip".)
+2. Extract "exiftool(-k).exe" from the ".zip" file, and place it on your Desktop.
+(Double-click on "exiftool-11.87.zip" to open the archive, then drag "exiftool(-k).exe" to your Desktop.)
+3. You can now double-click on "exiftool(-k).exe" to read the application documentation, or drag-and-drop files and folders to run exiftool on selected files. To install exiftool for use from the command line, continue with the following steps:
+
+4. Rename "exiftool(-k).exe" to "exiftool.exe".
+(or "exiftool(-k)" to "exiftool" if file name extensions are hidden on your system)
+5. Move "exiftool.exe" to the "C:\WINDOWS" directory (or any other directory in your PATH).
+
+You can now run exiftool by typing "exiftool" at the command prompt. (To get to the command prompt, select "Run..." from the Windows "Start" menu, then type "cmd" and press Return.)
 ```
 
 ## Usage
