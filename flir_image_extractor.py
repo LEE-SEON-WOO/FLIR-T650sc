@@ -17,7 +17,9 @@ from matplotlib import cm
 from matplotlib import pyplot as plt
 from collections import OrderedDict
 
+import cv2
 import numpy as np
+import glob
 
 
 class FlirImageExtractor:
@@ -254,27 +256,40 @@ class FlirImageExtractor:
         if 'gray' in options:
             img_gray.save(grayscale_filename)
 
-    def export_thermal_to_csv(self):
+    def export_thermal_to_csv(self, directory=False):
         """
         Convert thermal data in numpy to json
         :return:
         """
-
+        if directory==True:
+            print(self.flir_img_filename)
+            dir_list = os.path.join(self.flir_img_filename, '*.jpg')
+            for filename in glob.iglob(dir_list, recursive=True):
+                
+                csv_filename = filename[:-4] + '.csv'
+                thermal_data = np.copy(self.thermal_image_np)
+                np.savetxt(csv_filename, thermal_data, fmt="%.2f", delimiter=",")
+            
+            pass
         fn_prefix, _ = os.path.splitext(self.flir_img_filename)
         csv_filename = fn_prefix + '.csv'
-
-        with open(csv_filename, 'w') as fh:
-            writer = csv.writer(fh, delimiter=',')
-            # writer.writerows(self.thermal_image_np)
-            thermal_data = np.copy(self.thermal_image_np)
-            for row in thermal_data:
-                row = [round(pixel, 2) for pixel in row]
-                writer.writerow(row)
+        thermal_data = np.copy(self.thermal_image_np)
+        np.savetxt(csv_filename, thermal_data, fmt="%.2f", delimiter=",")
+        
+        
+        # with open(csv_filename, 'w') as fh:
+        #     writer = csv.writer(fh, delimiter=',')
+        #     # writer.writerows(self.thermal_image_np)
+        #     thermal_data = np.copy(self.thermal_image_np)
+        #     for row in thermal_data:
+        #         row = [round(pixel, 2) for pixel in row]
+        #         writer.writerow(row)
 
         if args.normalize:
-            with open('normalized_'+csv_filename, 'w') as nfh:
-                writer = csv.writer(nfh, delimiter=',')
-                writer.writerows(self.normalized_image_np)
+            np.savetxt('normalized_ '+csv_filename, thermal_data, fmt="%.2f", delimiter=",")
+            # with open('normalized_'+csv_filename, 'w') as nfh:
+            #     writer = csv.writer(nfh, delimiter=',')
+            #     writer.writerows(self.normalized_image_np)
 
     def export_thermal_to_json(self):
         """
@@ -323,8 +338,49 @@ class FlirImageExtractor:
 
         return pixel_values
 
+    
+    def export_thermal_to_np(self, flir_input, normalize=False):
+        """
+            Convert thermal path, open data convert temperature
+        
+            return Thermal Numpy
+        """
+        if os.path.isdir(flir_input):
+
+            dir_list = os.path.join(flir_input,'*.jpg')
+            termal_list=[]
+            for filename in glob.iglob(dir_list, recursive=True):
+                print(filename)
+                self.process_image(filename)
+                if normalize:
+                    resized_img = cv2.resize(self.normalized_image_np, (640, 480))
+                    termal_list.append(resized_img)
+                else:
+                    resized_img = cv2.resize(self.thermal_image_np, (640, 480))
+                    termal_list.append(resized_img)
+            #Stack Thermal-Image List
+            return np.stack(termal_list)
+        
+        else:
+            self.process_image(flir_input)
+            if normalize:
+                return self.normalized_image_np
+            else:
+                return self.thermal_image_np
 
 if __name__ == '__main__':
+    flir_input = 'examples'
+    #IMG Example: FLIR13447.jpg
+    #DIR example: examples
+    fie = FlirImageExtractor(exiftool_path='exiftool.exe', is_debug='True')
+    # fie.process_image(flir_input)
+    a = fie.export_thermal_to_np(flir_input)
+    
+    '''
+    print(a)
+    print(a.shape)
+    cv2.imshow("test", a[0,:,:])
+    cv2.waitKey(0)
     parser = argparse.ArgumentParser(description='Extract and visualize Flir Image data')
     parser.add_argument('-i', '--input', type=str, help='Input image. Ex. img.jpg', required=True)
     parser.add_argument('-p', '--plot', help='Generate a plot using matplotlib', required=False, action='store_true')
@@ -336,22 +392,19 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--debug', help='Set the debug flag', required=False,
                         action='store_true')
     parser.add_argument('-n', '--normalize', help='save normalized data', required=False, action='store_true')
-    parser.add_argument('-json', '--extractjson', help='extract thermal data to json', required=False ,action='store_true')
     args = parser.parse_args()
 
-    fie = FlirImageExtractor(exiftool_path=args.exiftool, is_debug=args.debug)
-    fie.process_image(args.input)
-
+    
     if args.plot:
         fie.plot()
 
     if args.extractcsv:
-        print(args.extractcsv)
-        fie.export_thermal_to_csv()
-
+        print(args.extractcsv)        
+        
+        fie.export_thermal_to_csv(directory=args.directory)
     if args.extractjson:
         print(args.extractjson)
         fie.export_thermal_to_json()
-
     if args.color:
         fie.save_images(args.color)
+    '''
