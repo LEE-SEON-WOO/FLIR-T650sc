@@ -20,7 +20,7 @@ from collections import OrderedDict
 import cv2
 import numpy as np
 import glob
-
+from tqdm import tqdm
 
 class FlirImageExtractor:
 
@@ -28,6 +28,7 @@ class FlirImageExtractor:
         self.exiftool_path = exiftool_path
         self.is_debug = is_debug
         self.flir_img_filename = ""
+        self.rgb_image_filename = ""
         self.image_suffix = "_rgb_image.jpg"
         self.thumbnail_suffix = "_rgb_thumb.jpg"
         self.thermal_suffix = "_thermal.png"
@@ -50,14 +51,17 @@ class FlirImageExtractor:
         :param flir_img_filename:
         :return:
         """
-        if self.is_debug:
-            print("INFO Flir image filepath:{}".format(flir_img_filename))
+        #if self.is_debug:
+            # print("INFO Flir image filepath:{}".format(flir_img_filename))
+            
 
         if not os.path.isfile(flir_img_filename):
             raise ValueError("Input file does not exist or this user don't have permission on this file")
 
         self.flir_img_filename = flir_img_filename
-
+        fn_prefix, _ = os.path.splitext(self.flir_img_filename)
+        self.rgb_image_filename = fn_prefix + self.image_suffix
+        
         if self.get_image_type().upper().strip() == "TIFF":
             # valid for tiff images from Zenmuse XTR
             self.use_thumbnail = True
@@ -256,7 +260,7 @@ class FlirImageExtractor:
         if 'gray' in options:
             img_gray.save(grayscale_filename)
 
-    def export_thermal_to_csv(self, directory=False):
+    def export_thermal_to_csv(self, directory=False, spec_path=None):
         """
         Convert thermal data in numpy to json
         :return:
@@ -267,6 +271,7 @@ class FlirImageExtractor:
             for filename in glob.iglob(dir_list, recursive=True):
                 
                 csv_filename = filename[:-4] + '.csv'
+                
                 thermal_data = np.copy(self.thermal_image_np)
                 np.savetxt(csv_filename, thermal_data, fmt="%.2f", delimiter=",")
             
@@ -274,19 +279,14 @@ class FlirImageExtractor:
         fn_prefix, _ = os.path.splitext(self.flir_img_filename)
         csv_filename = fn_prefix + '.csv'
         thermal_data = np.copy(self.thermal_image_np)
-        np.savetxt(csv_filename, thermal_data, fmt="%.2f", delimiter=",")
-        
-        
-        # with open(csv_filename, 'w') as fh:
-        #     writer = csv.writer(fh, delimiter=',')
-        #     # writer.writerows(self.thermal_image_np)
-        #     thermal_data = np.copy(self.thermal_image_np)
-        #     for row in thermal_data:
-        #         row = [round(pixel, 2) for pixel in row]
-        #         writer.writerow(row)
+        if spec_path:
+            save_path = os.path.join(spec_path, csv_filename.split(os.sep)[-1])
+            np.savetxt(save_path, thermal_data, fmt="%.2f", delimiter=",")
+        else:
+            np.savetxt(csv_filename, thermal_data, fmt="%.2f", delimiter=",")
 
-        if args.normalize:
-            np.savetxt('normalized_ '+csv_filename, thermal_data, fmt="%.2f", delimiter=",")
+        # if args.normalize:
+        #     np.savetxt('normalized_ '+csv_filename, thermal_data, fmt="%.2f", delimiter=",")
             # with open('normalized_'+csv_filename, 'w') as nfh:
             #     writer = csv.writer(nfh, delimiter=',')
             #     writer.writerows(self.normalized_image_np)
@@ -362,38 +362,141 @@ class FlirImageExtractor:
             return np.stack(termal_list)
         
         else:
-            self.process_image(flir_input)
+            #self.process_image(flir_input)
             if normalize:
                 return self.normalized_image_np
             else:
                 return self.thermal_image_np
 
+    def export_thermal_to_rgb(self, flir_input, normalize=False):
+        """
+            Convert thermal path, open data convert temperature
+        
+            return 3channel rgb
+        """
+
+        return self.rgb_image_np
+    
+    
+    def export_thermal_to_thermal(self, flir_input, normalize=False):
+        return cv2.imread(flir_input)
+
+    def fusion_image(self):
+        rgb_img = self.export_thermal_to_rgb(self.flir_img_filename)
+        orit_img = self.export_thermal_to_thermal(self.flir_img_filename)
+        
+        rgb_w, rgb_h = rgb_img.shape[:2]
+        orit_w, orit_h = orit_img.shape[:2]
+        x1, y1 = 770, 640
+        x2, y2 = 1890, 1430
+        test_orit = cv2.resize(orit_img, (x2-x1, y2-y1))
+        thermal_np = cv2.resize(self.thermal_image_np, (x2-x1, y2-y1))
+        rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]] = test_orit
+        return rgb_img, thermal_np
+
+def parsing_dir(fie):
+    #2분기 기성 폴더
+    path ='C:\\Users\\hci-lab01\\Desktop\\khnp_test'
+    #발전소 폴더
+    subfolder = os.listdir(path)
+    
+    
+    #조합
+    folder_list = [os.path.join(path, i) for i in subfolder]
+    parsing_xml_img_match(folder_list, fie)
+    
+    
+
+## [START]: parsing
+def atoi(text):
+    return int(text) if text.isdigit() else text
+def natural_keys(text):
+    import re
+    '''
+    alist.sort(key=natural_keys) sorts in human order
+    http://nedbatchelder.com/blog/200712/human_sorting.html
+    (See Toothy's implementation in the comments)
+    '''
+    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
+## [END]: PARSING
+
+## [START]: Get Parent Directory
+def get_parent_dir(directory, im_format='.png'):
+    sep = directory.split(os.sep)
+    _dir = os.path.dirname(os.path.dirname(directory))
+    return _dir, sep[-1][:-4] + im_format
+## [END]: Get Parent Directory
+
+## [START]: Choose img file Except Non Xml files.
+def except_png_files(annot_path, img_path):
+    # print("Todo")
+    xml_lists = [annot_path for annot_path in glob.iglob(annot_path+'/*.xml')]
+    png_list=[]
+    for i in xml_lists:
+        _, png = get_parent_dir(i)
+        png_path = os.path.join(img_path, png)
+        if os.path.isfile(png_path):
+            png_list.append(png_path)
+    return png_list
+## [END]: Choose img file Except Non Xml files.
+
+def parsing_xml_img_match(path, fie):
+    
+    annotation = []
+    csv = [] 
+    color=[]
+    
+    for i in path:
+        #설비 리스트
+        machine_list = os.listdir(i)
+        #각 폴더 안 리스트
+        # annotation += [k for j in machine_list  for k in glob.iglob(os.path.join(i, j, 'annotation', '*.xml'))]
+        annotation += [k for k in glob.iglob(os.path.join(i, 'annotation', '*.xml'))]
+
+    annotation.sort(key=natural_keys)
+    for i in tqdm(annotation):
+        _dir, _img = get_parent_dir(i, im_format='.jpg')
+        img_path = os.path.join(_dir, 'color', _img)
+        
+        if os.path.exists(img_path):
+            fie.process_image(img_path)
+            csv_dir_path = os.path.join(os.path.join(_dir, 'csv'))
+            if not os.path.exists(csv_dir_path):
+                os.mkdir(csv_dir_path)
+            fie.export_thermal_to_csv(directory=False, spec_path=csv_dir_path)
+        
+        
+        
+    
+    # glob.iglob()
+    
+    
+    
+    
 if __name__ == '__main__':
     flir_input = 'examples'
     #IMG Example: FLIR13447.jpg
     #DIR example: examples
     fie = FlirImageExtractor(exiftool_path='exiftool.exe', is_debug='True')
-    fie.process_image(flir_input)
-    a = fie.export_thermal_to_np(flir_input)
-    
-    
-    # print(a)
-    # print(a.shape)
-    # cv2.imshow("test", a[0,:,:])
-    # cv2.waitKey(0)
-    # parser = argparse.ArgumentParser(description='Extract and visualize Flir Image data')
-    # parser.add_argument('-i', '--input', type=str, help='Input image. Ex. img.jpg', required=True)
+    # fie.process_image(flir_input)
+    #a = fie.export_thermal_to_np(flir_input)
+    #parsing_dir(fie)
+    parser = argparse.ArgumentParser(description='Extract and visualize Flir Image data')
+    parser.add_argument('-i', '--input', type=str, help='Input image. Ex. img.jpg', required=True)
     # parser.add_argument('-p', '--plot', help='Generate a plot using matplotlib', required=False, action='store_true')
     # parser.add_argument('-exif', '--exiftool', type=str, help='Custom path to exiftool', required=False,
     #                     default='exiftool')
     # parser.add_argument('-c', '--color', help='[rgb|thermal|gray] selec output color option')
     # parser.add_argument('-csv', '--extractcsv', help='Export the thermal data per pixel encoded as csv file',
     #                     required=True, action='store_true')
-    # parser.add_argument('-d', '--debug', help='Set the debug flag', required=False,
+    # parser.add_argument('-d', '--debug', help='Set the debug flag', default=False, required=False,
     #                     action='store_true')
     # parser.add_argument('-n', '--normalize', help='save normalized data', required=False, action='store_true')
-    # args = parser.parse_args()
-    # fie.process_image(args.input)
+    args = parser.parse_args()
+    fie.process_image(args.input)
+    img, _ = fie.fusion_image()    
+    cv2.imshow("test", img)
+    cv2.waitKey(0)
     
     # if args.plot:
     #     fie.plot()
@@ -406,5 +509,6 @@ if __name__ == '__main__':
     #     print(args.extractjson)
     #     fie.export_thermal_to_json()
     # if args.color:
+    #     print(args.color)
     #     fie.save_images(args.color)
     
