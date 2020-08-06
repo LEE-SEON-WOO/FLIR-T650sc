@@ -381,18 +381,32 @@ class FlirImageExtractor:
     def export_thermal_to_thermal(self, flir_input, normalize=False):
         return cv2.imread(flir_input)
 
-    def fusion_image(self):
+    def fusion_image(self, alpha=1.0):
         rgb_img = self.export_thermal_to_rgb(self.flir_img_filename)
         orit_img = self.export_thermal_to_thermal(self.flir_img_filename)
         
         rgb_w, rgb_h = rgb_img.shape[:2]
         orit_w, orit_h = orit_img.shape[:2]
-        x1, y1 = 770, 640
-        x2, y2 = 1890, 1430
+        x1, y1 = 770, 635
+        x2, y2 = 1885, 1430
         test_orit = cv2.resize(orit_img, (x2-x1, y2-y1))
         thermal_np = cv2.resize(self.thermal_image_np, (x2-x1, y2-y1))
+        copy_rgb_img = rgb_img.copy()
         rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]] = test_orit
-        return rgb_img, thermal_np
+        
+        img = cv2.addWeighted(rgb_img, alpha, copy_rgb_img, 1-alpha, 0)
+        #crop alpha blending
+        crop = img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]]
+        resized_crop = cv2.resize(crop, (640, 480))
+        result = {
+                        'alpha_blending':img, 
+                        'crop_alpha_blending':resized_crop, 
+                        'rgb_image':copy_rgb_img,
+                        'resized_thermal_img':thermal_np,
+                        'fusion_image':rgb_img
+                        }
+        
+        return result
 
 def parsing_dir(fie):
     #2분기 기성 폴더
