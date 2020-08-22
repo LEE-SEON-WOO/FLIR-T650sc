@@ -377,16 +377,40 @@ class FlirImageExtractor:
 
         return self.rgb_image_np
     
-    
-    def export_thermal_to_thermal(self, flir_input, normalize=False):
-        return cv2.imread(flir_input)
+    def imread(self, filename, flags=cv2.IMREAD_COLOR, dtype=np.uint8): 
+        try: 
+            n = np.fromfile(filename, dtype) 
+            img = cv2.imdecode(n, flags) 
+            return img 
+        except Exception as e: 
+            print(e) 
+            return None
+        
+    def imwrite(self, filename, img, params=None): 
+        try: 
+            ext = os.path.splitext(filename)[1] 
+            result, n = cv2.imencode(ext, img, params) 
+            if result: 
+                with open(filename, mode='w+b') as f: 
+                    n.tofile(f) 
+                    return True 
+            else: 
+                return False 
+        except Exception as e: 
+            print(e) 
+            return False
+
+    def export_flir_to_rawflr(self, flir_input):
+        return self.imread(flir_input)
 
     def fusion_image(self, alpha=1.0):
         rgb_img = self.export_thermal_to_rgb(self.flir_img_filename)
-        orit_img = self.export_thermal_to_thermal(self.flir_img_filename)
+        orit_img = self.export_flir_to_rawflr(self.flir_img_filename)
         
         rgb_w, rgb_h = rgb_img.shape[:2]
+        # print(rgb_w, rgb_h)
         orit_w, orit_h = orit_img.shape[:2]
+        # print(orit_w, orit_h)
         x1, y1 = 770, 635
         x2, y2 = 1885, 1430
         test_orit = cv2.resize(orit_img, (x2-x1, y2-y1))
@@ -408,6 +432,47 @@ class FlirImageExtractor:
         
         return result
 
+    def homography(self):
+        from asift import matching_image
+        rgb_np = self.rgb_image_np
+        
+        color_rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2GRAY)
+        thermal_np = cv2.resize(self.thermal_image_np, (640, 480))
+        
+        
+        ch, cw = color_rgb_np.shape[:2]
+        ch_center, cw_center = ch//2, cw//2
+        
+        th, tw = thermal_np.shape[:2]
+        th_xoff, tw_yoff = int(th*1.0), int(tw*1.0)
+        
+        print(ch, cw, ch_center, cw_center)
+        print(th, tw, th_xoff, tw_yoff)
+        crop_rgb_np = color_rgb_np[ch_center-th_xoff:ch_center+th_xoff,cw_center-tw_yoff:cw_center+tw_yoff]
+        crop_rgb_np = cv2.resize(crop_rgb_np, (tw, th))
+        #print(crop_rgb_np.shape)
+        
+        #crop_rgb_np = cv2.resize(color_rgb_np, (640, 480))
+        
+        ## using numpy 
+        #thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
+        #thermal_normalized = np.uint8(cm.binary(thermal_normalized) * 255)
+        ## using opnecv
+        thermal_normalized2 = cv2.normalize(thermal_np, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        
+        
+        feature_list = ['sift', 'orb', 'akaze', 'brisk', 'surf']
+        for i in feature_list:
+            #matching
+            try:
+                matching_image(crop_rgb_np[:, :tw//2], thermal_normalized2[:, tw//2:], feature=i)
+            except:
+                print(i)
+        #img_visual = Image.fromarray(rgb_np)
+        #img_gray = Image.fromarray(np.uint8(cm.binary(thermal_normalized) * 255))
+        exit()
+        
+        return result
 def parsing_dir(fie):
     #2분기 기성 폴더
     path ='C:\\Users\\hci-lab01\\Desktop\\khnp_test'
@@ -508,7 +573,9 @@ if __name__ == '__main__':
     # parser.add_argument('-n', '--normalize', help='save normalized data', required=False, action='store_true')
     args = parser.parse_args()
     fie.process_image(args.input)
-    img, _ = fie.fusion_image()    
+    #img = fie.fusion_image()    
+    img = fie.homography()
+    
     cv2.imshow("test", img)
     cv2.waitKey(0)
     

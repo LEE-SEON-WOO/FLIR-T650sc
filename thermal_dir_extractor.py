@@ -377,6 +377,21 @@ class FlirImageExtractor:
 
         return self.rgb_image_np
     
+    def export_rgb_and_gray(self, img_type):
+        rgb_np = self.rgb_image_np
+        thermal_np = self.thermal_image_np
+
+        img_visual = Image.fromarray(rgb_np)
+        thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
+        
+        if img_type == 'original':
+            return thermal_normalized
+        elif img_type =='thermal':
+            img_thermal = Image.fromarray(np.uint8(cm.inferno(thermal_normalized) * 255))
+            return img_thermal
+        elif img_type == 'gray':
+            img_gray = Image.fromarray(np.uint8(cm.binary(thermal_normalized) * 255))
+            return img_gray
     
     def export_thermal_to_thermal(self, flir_input, normalize=False):
         return cv2.imread(flir_input)
@@ -384,7 +399,7 @@ class FlirImageExtractor:
     def fusion_image(self, alpha=1.0):
         rgb_img = self.export_thermal_to_rgb(self.flir_img_filename)
         orit_img = self.export_thermal_to_thermal(self.flir_img_filename)
-        
+        orit_img = export_rgb_and_gray('thermal')
         rgb_w, rgb_h = rgb_img.shape[:2]
         orit_w, orit_h = orit_img.shape[:2]
         x1, y1 = 770, 635
@@ -407,6 +422,7 @@ class FlirImageExtractor:
                         }
         
         return result
+    
 def find_xml_path(root_dir):
     results =[]
     for currentpath, folders, files in os.walk(root_dir):
