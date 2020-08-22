@@ -30,7 +30,7 @@ def KLT(a):
     return klt,vec,val
 if __name__ == "__main__":
     fie = FlirImageExtractor(exiftool_path='exiftool.exe', is_debug='True')
-    filename = "D:\\한빛 3발(전송용)\\JPEGImages\\IR_18619.jpg"
+    filename = "FLIR0079.jpg"
     fie.process_image(filename)
     result = fie.fusion_image(alpha=0.5)
     # cv2.imshow("test", result['crop_alpha_blending'])

@@ -122,9 +122,16 @@ class FlirImageExtractor:
         meta_json = subprocess.check_output(
             [self.exiftool_path, self.flir_img_filename, '-Emissivity', '-SubjectDistance', '-AtmosphericTemperature',
              '-ReflectedApparentTemperature', '-IRWindowTemperature', '-IRWindowTransmission', '-RelativeHumidity',
-             '-PlanckR1', '-PlanckB', '-PlanckF', '-PlanckO', '-PlanckR2', '-j'])
+             '-PlanckR1', '-PlanckB', '-PlanckF', '-PlanckO', '-PlanckR2',
+             '-OffsetX', '-Real2IR', '-OffsetY', '-PiPX1', '-PiPX2', '-PiPY1', '-PiPY2', '-j'])
         meta = json.loads(meta_json.decode())[0]
-
+        self.PiPTags = {'Real2IR' : meta['Real2IR'],
+                                'OffsetX' : meta['OffsetX'],
+                                'OffsetY' : meta['OffsetY'],
+                                'PiPX1' : meta['PiPX1'],
+                                'PiPX2' : meta['PiPX2'],
+                                'PiPY2' : meta['PiPY2'],
+                                'PiPY1' : meta['PiPY1']}
         # exifread can't extract the embedded thermal image, use exiftool instead
         thermal_img_bytes = subprocess.check_output([self.exiftool_path, "-RawThermalImage", "-b", self.flir_img_filename])
         thermal_img_stream = io.BytesIO(thermal_img_bytes)
@@ -438,36 +445,60 @@ class FlirImageExtractor:
         
         color_rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2GRAY)
         thermal_np = cv2.resize(self.thermal_image_np, (640, 480))
-        
-        
-        ch, cw = color_rgb_np.shape[:2]
-        ch_center, cw_center = ch//2, cw//2
-        
+        h, w = color_rgb_np.shape[:2]
+        real2ir = self.PiPTags['Real2IR']
+        print(self.PiPTags)
+        for k, v in self.PiPTags.items():
+            if (k == 'Real2IR'):
+                continue
+            elif k=='OffsetX' or k=='OffsetY':
+                if int(v)<0:
+                    self.PiPTags[k] = int(v)
+                else:
+                    self.PiPTags[k] = int(v)
+            # else:
+            #     self.PiPTags[k] = int(int(v)*real2ir)
+        x1, y1 = 770, 635
+        x2, y2 = 1885, 1430
+        #print(cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir).shape)
+        # color_rgb_np = cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir)
+        print("Rescaled Image size: ", color_rgb_np.shape)
+        ch, cw = color_rgb_np.shape[:2]#y point, x point
+        ch_center, cw_center = cw//2-(int(self.PiPTags['OffsetX']*real2ir)), ch//2-int(self.PiPTags['OffsetY']*real2ir)
         th, tw = thermal_np.shape[:2]
-        th_xoff, tw_yoff = int(th*1.0), int(tw*1.0)
-        
-        print(ch, cw, ch_center, cw_center)
-        print(th, tw, th_xoff, tw_yoff)
-        crop_rgb_np = color_rgb_np[ch_center-th_xoff:ch_center+th_xoff,cw_center-tw_yoff:cw_center+tw_yoff]
-        crop_rgb_np = cv2.resize(crop_rgb_np, (tw, th))
-        #print(crop_rgb_np.shape)
-        
-        #crop_rgb_np = cv2.resize(color_rgb_np, (640, 480))
-        
+        print("Center: {}, {}".format(ch_center, cw_center))
+        print(self.PiPTags)
+        x1 = ch_center - int(self.PiPTags['PiPX1']*real2ir)
+        y1 = cw_center - int(self.PiPTags['PiPY1']*real2ir)
+        x2 = int(self.PiPTags['PiPX2']*real2ir) + ch_center
+        y2 = int(self.PiPTags['PiPY2']*real2ir) + cw_center
+        print("X1:{}, Y1:{}, X2:{}, Y2:{}".format(x1, y1, x2, y2))
+        print("X2-X1:{}, Y2-Y1:{}".format(x2-x1, y2-y1))
+        crop_rgb_np = cv2.rectangle(color_rgb_np, (x1,y1), (x2,y2),(255, 255, 255), 3) 
+        # crop_rgb_np = color_rgb_np[ch_center-self.PiPTags['PiPY1']:ch_center+self.PiPTags['PiPY2'],
+        #                                             cw_center-self.PiPTags['PiPX1']:cw_center+self.PiPTags['PiPX2']]
+        #rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]] = test_orit
+
+        #print("Cropped : ", crop_rgb_np.shape)
+        #exit()
+
         ## using numpy 
         #thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
         #thermal_normalized = np.uint8(cm.binary(thermal_normalized) * 255)
         ## using opnecv
         thermal_normalized2 = cv2.normalize(thermal_np, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         
-        
-        feature_list = ['sift', 'orb', 'akaze', 'brisk', 'surf']
-        for i in feature_list:
-            #matching
-            try:
-                matching_image(crop_rgb_np[:, :tw//2], thermal_normalized2[:, tw//2:], feature=i)
-            except:
-                print(i)
+        cv2.imshow("croped", crop_rgb_np)
+        cv2.imshow("thermal", thermal_normalized2)
+        while(not cv2.waitKey(1)==ord('q')):
+            continue
+        # feature_list = ['sift', 'orb', 'akaze', 'brisk', 'surf']
+        # for i in feature_list:
+        #     #matching
+        #     try:
+        #         matching_image(crop_rgb_np[:, :tw//2], thermal_normalized2[:, tw//2:], feature=i)
+        #     except:
+        #         print(i)
         #img_visual = Image.fromarray(rgb_np)
         #img_gray = Image.fromarray(np.uint8(cm.binary(thermal_normalized) * 255))
         exit()
