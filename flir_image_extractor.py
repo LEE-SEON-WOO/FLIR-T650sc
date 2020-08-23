@@ -411,19 +411,39 @@ class FlirImageExtractor:
         return self.imread(flir_input)
 
     def fusion_image(self, alpha=1.0):
-        rgb_img = self.export_thermal_to_rgb(self.flir_img_filename)
-        orit_img = self.export_flir_to_rawflr(self.flir_img_filename)
+        
+        
+        rgb_np = self.rgb_image_np
+        color_rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2GRAY)
+        h, w = color_rgb_np.shape[:2]
+        real2ir = self.PiPTags['Real2IR']
+        
+        
+        thermal_np = cv2.resize(self.thermal_image_np, (640, 480))
+        thermal_normalized2 = cv2.normalize(thermal_np, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        
+        scale_coord, coord = self.convert(real_img = color_rgb_np, 
+                                                        thermal_img=thermal_normalized2,
+                                                        piptag = self.PiPTags)
+        rgb_img = cv2.resize(rgb_np, None, fx=scale_coord[0], fy=scale_coord[1])
+        
+        y1, y2, x1, x2 = coord[0], coord[1], coord[2], coord[3]
+        print(self.PiPTags)
+        print(coord)
+        
+        #print(cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir).shape)
+        # color_rgb_np = cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir)
+        
+        
         
         rgb_w, rgb_h = rgb_img.shape[:2]
-        # print(rgb_w, rgb_h)
-        orit_w, orit_h = orit_img.shape[:2]
-        # print(orit_w, orit_h)
-        x1, y1 = 770, 635
-        x2, y2 = 1885, 1430
-        test_orit = cv2.resize(orit_img, (x2-x1, y2-y1))
-        thermal_np = cv2.resize(self.thermal_image_np, (x2-x1, y2-y1))
+        print(rgb_w, rgb_h)
+        orit_w, orit_h = thermal_np.shape[:2]
+        print(orit_w, orit_h)
+        #test_orit = cv2.resize(thermal_np, (x2-x1, y2-y1))
+        test_orit=self.export_flir_to_rawflr(self.flir_img_filename)
         copy_rgb_img = rgb_img.copy()
-        rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]] = test_orit
+        rgb_img[y1:y2, x1:x2] = test_orit
         
         img = cv2.addWeighted(rgb_img, alpha, copy_rgb_img, 1-alpha, 0)
         #crop alpha blending
@@ -438,6 +458,56 @@ class FlirImageExtractor:
                         }
         
         return result
+    
+    def real_to_ir(self, real, ir_ratio):
+        return int(real*ir_ratio)
+    
+    def convert(self, real_img, thermal_img, piptag=None):
+        import copy
+        
+        
+        
+        for k, v in piptag.items():
+            if not k == 'Real2IR':
+                piptag[k] = int(v)
+        
+        h, w = real_img.shape[:2]
+        thermal_h, thermal_w = thermal_img.shape[:2]
+        
+        real2ir = piptag['Real2IR']
+        print(real2ir)
+
+
+        h_resize_factor = int(h/real2ir)
+        w_resize_factor = int(w/real2ir)
+        print(h_resize_factor, w_resize_factor)
+
+        h_rf = h/thermal_h/real2ir
+        w_rf = w/thermal_w/real2ir
+        print(h_rf, w_rf)
+
+        offsetx, offsety = piptag['OffsetX']-piptag['OffsetX']//real2ir, piptag['OffsetY']-piptag['OffsetY']//real2ir
+        # real_img = cv2.resize(real_img,  (w_resize_factor, h_resize_factor))
+        real_img = cv2.resize(real_img, None, fx = 1/w_rf, fy=1/h_rf)
+        print(h_rf, w_rf)
+
+        
+        h, w = real_img.shape
+        
+        h_center, w_center = (h//2)+int(offsety), (w//2)+int(offsetx)
+        print(h_center, w_center)
+
+
+        #horizontal = ()
+        #vertical = (-)
+
+        #real_img[h_center- piptags['PiPY2']: h_center+piptags['PiPY1']+1, w_center-piptags['PiPX2']-1:w_center+piptags['PiPX1']] = thermal_img
+        #real_img[h_center- 240: h_center+240, w_center-320:w_center+320] = thermal_img
+        x1, x2, y1, y2 =piptag['PiPX1'], (piptag['PiPX2']+1), (piptag['PiPY1']), (piptag['PiPY2']+1)
+        x1, x2, y1, y2 = 320,320, 240, 240
+        return (1/w_rf, 1/h_rf), (h_center- y2, h_center+ y1, w_center-x1, w_center+x2)
+        
+
 
     def homography(self):
         from asift import matching_image
@@ -448,33 +518,18 @@ class FlirImageExtractor:
         h, w = color_rgb_np.shape[:2]
         real2ir = self.PiPTags['Real2IR']
         print(self.PiPTags)
-        for k, v in self.PiPTags.items():
-            if (k == 'Real2IR'):
-                continue
-            elif k=='OffsetX' or k=='OffsetY':
-                if int(v)<0:
-                    self.PiPTags[k] = int(v)
-                else:
-                    self.PiPTags[k] = int(v)
-            # else:
-            #     self.PiPTags[k] = int(int(v)*real2ir)
+        
         x1, y1 = 770, 635
         x2, y2 = 1885, 1430
         #print(cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir).shape)
         # color_rgb_np = cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir)
-        print("Rescaled Image size: ", color_rgb_np.shape)
-        ch, cw = color_rgb_np.shape[:2]#y point, x point
-        ch_center, cw_center = cw//2-(int(self.PiPTags['OffsetX']*real2ir)), ch//2-int(self.PiPTags['OffsetY']*real2ir)
-        th, tw = thermal_np.shape[:2]
-        print("Center: {}, {}".format(ch_center, cw_center))
-        print(self.PiPTags)
-        x1 = ch_center - int(self.PiPTags['PiPX1']*real2ir)
-        y1 = cw_center - int(self.PiPTags['PiPY1']*real2ir)
-        x2 = int(self.PiPTags['PiPX2']*real2ir) + ch_center
-        y2 = int(self.PiPTags['PiPY2']*real2ir) + cw_center
-        print("X1:{}, Y1:{}, X2:{}, Y2:{}".format(x1, y1, x2, y2))
-        print("X2-X1:{}, Y2-Y1:{}".format(x2-x1, y2-y1))
-        crop_rgb_np = cv2.rectangle(color_rgb_np, (x1,y1), (x2,y2),(255, 255, 255), 3) 
+        
+        thermal_normalized2 = cv2.normalize(thermal_np, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        img = self.convert(real_img = color_rgb_np, 
+                                                        thermal_img=thermal_normalized2,
+                                                        piptag = self.PiPTags)
+        
+        # crop_rgb_np = cv2.rectangle(color_rgb_np, (x1,y1), (x2,y2),(255, 255, 255), 3) 
         # crop_rgb_np = color_rgb_np[ch_center-self.PiPTags['PiPY1']:ch_center+self.PiPTags['PiPY2'],
         #                                             cw_center-self.PiPTags['PiPX1']:cw_center+self.PiPTags['PiPX2']]
         #rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]] = test_orit
@@ -486,10 +541,10 @@ class FlirImageExtractor:
         #thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
         #thermal_normalized = np.uint8(cm.binary(thermal_normalized) * 255)
         ## using opnecv
-        thermal_normalized2 = cv2.normalize(thermal_np, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         
-        cv2.imshow("croped", crop_rgb_np)
-        cv2.imshow("thermal", thermal_normalized2)
+        
+        cv2.imshow("croped", img)
+        # cv2.imshow("thermal", thermal_normalized2)
         while(not cv2.waitKey(1)==ord('q')):
             continue
         # feature_list = ['sift', 'orb', 'akaze', 'brisk', 'surf']
