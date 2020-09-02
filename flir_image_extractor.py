@@ -54,8 +54,9 @@ class FlirImageExtractor:
         #if self.is_debug:
             # print("INFO Flir image filepath:{}".format(flir_img_filename))
             
-
+        
         if not os.path.isfile(flir_img_filename):
+            print(flir_img_filename)
             raise ValueError("Input file does not exist or this user don't have permission on this file")
 
         self.flir_img_filename = flir_img_filename
@@ -414,6 +415,8 @@ class FlirImageExtractor:
         
         
         rgb_np = self.rgb_image_np
+        rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2RGB)
+        
         color_rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2GRAY)
         h, w = color_rgb_np.shape[:2]
         real2ir = self.PiPTags['Real2IR']
@@ -426,35 +429,37 @@ class FlirImageExtractor:
                                                         thermal_img=thermal_normalized2,
                                                         piptag = self.PiPTags)
         rgb_img = cv2.resize(rgb_np, None, fx=scale_coord[0], fy=scale_coord[1])
-        
         y1, y2, x1, x2 = coord[0], coord[1], coord[2], coord[3]
-        print(self.PiPTags)
-        print(coord)
-        
-        #print(cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir).shape)
-        # color_rgb_np = cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir)
-        
-        
-        
         rgb_w, rgb_h = rgb_img.shape[:2]
-        print(rgb_w, rgb_h)
         orit_w, orit_h = thermal_np.shape[:2]
-        print(orit_w, orit_h)
         #test_orit = cv2.resize(thermal_np, (x2-x1, y2-y1))
         test_orit=self.export_flir_to_rawflr(self.flir_img_filename)
         copy_rgb_img = rgb_img.copy()
-        rgb_img[y1:y2, x1:x2] = test_orit
+        try:
+            rgb_img[y1:y2, x1:x2] = test_orit
+            img = cv2.addWeighted(rgb_img, alpha, copy_rgb_img, 1-alpha, 0)
+            
+            #crop alpha blending
+            crop = img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]]
+            crop_rgb_img = copy_rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]]
+        except:
+            #Rotate Image
+            test_orit = np.transpose(test_orit, (1, 0, 2))
+            
+            rgb_img[y1:y2, x1:x2] = test_orit
+            img = cv2.addWeighted(rgb_img, alpha, copy_rgb_img, 1-alpha, 0)
+            crop = img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]]
+            crop_rgb_img = copy_rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]]
+            
         
-        img = cv2.addWeighted(rgb_img, alpha, copy_rgb_img, 1-alpha, 0)
-        #crop alpha blending
-        crop = img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]]
-        resized_crop = cv2.resize(crop, (640, 480))
+        
         result = {
                         'alpha_blending':img, 
-                        'crop_alpha_blending':resized_crop, 
+                        'crop_alpha_blending':crop, 
                         'rgb_image':copy_rgb_img,
                         'resized_thermal_img':thermal_np,
-                        'fusion_image':rgb_img
+                        'fusion_image':rgb_img,
+                        'crop_rgb_image':crop_rgb_img
                         }
         
         return result
@@ -475,27 +480,21 @@ class FlirImageExtractor:
         thermal_h, thermal_w = thermal_img.shape[:2]
         
         real2ir = piptag['Real2IR']
-        print(real2ir)
-
 
         h_resize_factor = int(h/real2ir)
         w_resize_factor = int(w/real2ir)
-        print(h_resize_factor, w_resize_factor)
 
         h_rf = h/thermal_h/real2ir
         w_rf = w/thermal_w/real2ir
-        print(h_rf, w_rf)
 
         offsetx, offsety = piptag['OffsetX']-piptag['OffsetX']//real2ir, piptag['OffsetY']-piptag['OffsetY']//real2ir
         # real_img = cv2.resize(real_img,  (w_resize_factor, h_resize_factor))
         real_img = cv2.resize(real_img, None, fx = 1/w_rf, fy=1/h_rf)
-        print(h_rf, w_rf)
 
         
         h, w = real_img.shape
         
         h_center, w_center = (h//2)+int(offsety), (w//2)+int(offsetx)
-        print(h_center, w_center)
 
 
         #horizontal = ()
@@ -507,58 +506,6 @@ class FlirImageExtractor:
         x1, x2, y1, y2 = 320,320, 240, 240
         return (1/w_rf, 1/h_rf), (h_center- y2, h_center+ y1, w_center-x1, w_center+x2)
         
-
-
-    def homography(self):
-        from asift import matching_image
-        rgb_np = self.rgb_image_np
-        
-        color_rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2GRAY)
-        thermal_np = cv2.resize(self.thermal_image_np, (640, 480))
-        h, w = color_rgb_np.shape[:2]
-        real2ir = self.PiPTags['Real2IR']
-        print(self.PiPTags)
-        
-        x1, y1 = 770, 635
-        x2, y2 = 1885, 1430
-        #print(cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir).shape)
-        # color_rgb_np = cv2.resize(color_rgb_np, None, fx=1/real2ir, fy=1/real2ir)
-        
-        thermal_normalized2 = cv2.normalize(thermal_np, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-        img = self.convert(real_img = color_rgb_np, 
-                                                        thermal_img=thermal_normalized2,
-                                                        piptag = self.PiPTags)
-        
-        # crop_rgb_np = cv2.rectangle(color_rgb_np, (x1,y1), (x2,y2),(255, 255, 255), 3) 
-        # crop_rgb_np = color_rgb_np[ch_center-self.PiPTags['PiPY1']:ch_center+self.PiPTags['PiPY2'],
-        #                                             cw_center-self.PiPTags['PiPX1']:cw_center+self.PiPTags['PiPX2']]
-        #rgb_img[y1:y1+test_orit.shape[0], x1:x1+test_orit.shape[1]] = test_orit
-
-        #print("Cropped : ", crop_rgb_np.shape)
-        #exit()
-
-        ## using numpy 
-        #thermal_normalized = (thermal_np - np.amin(thermal_np)) / (np.amax(thermal_np) - np.amin(thermal_np))
-        #thermal_normalized = np.uint8(cm.binary(thermal_normalized) * 255)
-        ## using opnecv
-        
-        
-        cv2.imshow("croped", img)
-        # cv2.imshow("thermal", thermal_normalized2)
-        while(not cv2.waitKey(1)==ord('q')):
-            continue
-        # feature_list = ['sift', 'orb', 'akaze', 'brisk', 'surf']
-        # for i in feature_list:
-        #     #matching
-        #     try:
-        #         matching_image(crop_rgb_np[:, :tw//2], thermal_normalized2[:, tw//2:], feature=i)
-        #     except:
-        #         print(i)
-        #img_visual = Image.fromarray(rgb_np)
-        #img_gray = Image.fromarray(np.uint8(cm.binary(thermal_normalized) * 255))
-        exit()
-        
-        return result
 def parsing_dir(fie):
     #2분기 기성 폴더
     path ='C:\\Users\\hci-lab01\\Desktop\\khnp_test'
